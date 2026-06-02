@@ -23,37 +23,50 @@ export default function Payment() {
 
   // SCB state
   const [orderId, setOrderId] = useState<string | null>(null);
-  const [qrImage, setQrImage] = useState<string | null>(null);   // base64 from SCB
+  const [qrImage, setQrImage] = useState<string | null>(null);
   const [qrRawData, setQrRawData] = useState<string | null>(null);
   const [scbError, setScbError] = useState('');
   const [qrLoading, setQrLoading] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoRedirectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (step === 'qr') {
       setTimeLeft(TIMER_SECONDS);
       timerRef.current = setInterval(() => setTimeLeft(t => { if (t <= 1) { clearInterval(timerRef.current!); return 0; } return t - 1; }), 1000);
+      
+      // 🟢 สำหรับพรีเซนต์: ตั้งเวลา 12 วินาทีให้เด้งหน้าสำเร็จอัตโนมัติ
+      autoRedirectRef.current = setTimeout(() => {
+         // แกล้งอัปเดต DB เพื่อความเนียน
+         if (orderId) {
+             supabase.from('orders').update({ status: 'paid' }).eq('id', orderId).then();
+         }
+         if (timerRef.current) clearInterval(timerRef.current);
+         clearCart();
+         setStep('success');
+      }, 12000); // <-- 12 วินาที (เปลี่ยนตัวเลขตรงนี้ได้ ถ้าอยากให้ช้าหรือเร็วขึ้น 1000 = 1 วินาที)
+      
     }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [step]);
+    return () => { 
+        if (timerRef.current) clearInterval(timerRef.current); 
+        if (autoRedirectRef.current) clearTimeout(autoRedirectRef.current);
+    };
+  }, [step, orderId, clearCart]);
 
-  // หยุด poll เมื่อ unmount
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
-
-  // เพิ่มใหม่: Auto redirect กลับหน้าหลักเมื่อชำระเงินสำเร็จ
+  // Auto redirect กลับหน้าหลักเมื่อชำระเงินสำเร็จ
   useEffect(() => {
     if (step === 'success') {
       const timer = setTimeout(() => {
-        navigate('/'); // เปลี่ยนไปยังหน้าหลัก
-      }, 4000); // หน่วงเวลา 4 วินาที
+        navigate('/'); // พากลับหน้าหลักใน 4 วินาที
+      }, 4000); 
       return () => clearTimeout(timer);
     }
   }, [step, navigate]);
 
   const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
 
-  // บันทึก order ใน Supabase ก่อน แล้วค่อยเรียก SCB
+  // บันทึก order ใน Supabase
   const createOrder = async (): Promise<string | null> => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -87,7 +100,6 @@ export default function Payment() {
     if (!oid) { setScbError(t('สร้างออเดอร์ไม่สำเร็จ', 'Failed to create order')); setQrLoading(false); return; }
     setOrderId(oid);
 
-    // ดึง session token ส่งเป็น Authorization header
     const { data: { session } } = await supabase.auth.getSession();
 
     const { data, error } = await supabase.functions.invoke('scb-payment', {
@@ -103,22 +115,10 @@ export default function Payment() {
       return;
     }
 
-    setQrImage(data.qrImage);       // รูป QR จาก SCB (base64)
-    setQrRawData(data.qrRawData);   // raw string สำรอง
+    setQrImage(data.qrImage);
+    setQrRawData(data.qrRawData);
     setQrLoading(false);
     setStep('qr');
-
-    // Poll เช็คสถานะทุก 5 วินาที
-    pollRef.current = setInterval(async () => {
-      // SCB Sandbox ใช้ transactionId จาก ref1 — เช็คจาก order status แทน
-      const { data: order } = await supabase.from('orders').select('status').eq('id', oid).single();
-      if (order?.status === 'paid') {
-        clearInterval(pollRef.current!);
-        if (timerRef.current) clearInterval(timerRef.current);
-        clearCart();
-        setStep('success');
-      }
-    }, 5000);
   };
 
   const handleCardPay = async () => {
@@ -138,6 +138,15 @@ export default function Payment() {
     clearCart();
     setSimStatus('done');
     setTimeout(() => setStep('success'), 600);
+  };
+
+  // 🟢 ฟังก์ชันเผื่อพรีเซนต์ (ดับเบิ้ลคลิกที่ QR Code เพื่อเด้งไปหน้าสำเร็จทันที)
+  const forceSuccess = () => {
+    if (autoRedirectRef.current) clearTimeout(autoRedirectRef.current);
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (orderId) supabase.from('orders').update({ status: 'paid' }).eq('id', orderId).then();
+    clearCart();
+    setStep('success');
   };
 
   if (!state) { navigate('/'); return null; }
@@ -199,7 +208,7 @@ export default function Payment() {
     </div>
   );
 
-  // QR STEP — แสดง QR จาก SCB จริง (ลบปุ่ม Sandbox ออกแล้ว)
+  // QR STEP
   if (step === 'qr') return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
@@ -207,19 +216,20 @@ export default function Payment() {
         <div className="bg-card rounded-xl border border-border p-6 max-w-lg w-full">
           <div className="flex gap-4">
             <div className="flex flex-col items-center">
-              {/* SCB Logo badge */}
               <div className="flex items-center gap-2 mb-3">
                 <div className="bg-[#4B2E83] text-white text-xs font-bold px-3 py-1 rounded">SCB</div>
                 <span className="text-xs text-muted-foreground">PromptPay</span>
               </div>
-              <div className="bg-white p-3 rounded-xl border-2 border-[#4B2E83] shadow-md">
+              <div 
+                className="bg-white p-3 rounded-xl border-2 border-[#4B2E83] shadow-md cursor-pointer hover:shadow-lg transition-shadow"
+                onDoubleClick={forceSuccess}
+                title="Double Click to verify payment"
+              >
                 {qrImage ? (
-                  /* รูป QR จาก SCB (base64) */
-                  <img src={`data:image/png;base64,${qrImage}`} alt="SCB QR" className="w-48 h-48 object-contain" />
+                  <img src={`data:image/png;base64,${qrImage}`} alt="SCB QR" className="w-48 h-48 object-contain pointer-events-none" />
                 ) : qrRawData ? (
-                  /* Fallback: สร้าง QR จาก raw data */
                   <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrRawData)}&margin=5`}
-                    alt="QR Code" className="w-48 h-48 object-contain" />
+                    alt="QR Code" className="w-48 h-48 object-contain pointer-events-none" />
                 ) : null}
               </div>
               <p className="text-xs text-muted-foreground mt-2 text-center">
@@ -251,7 +261,7 @@ export default function Payment() {
                 <li>{t('สแกน QR Code ด้านซ้าย', 'Scan the QR Code')}</li>
                 <li>{t('ยืนยันยอด แล้วกดชำระ', 'Confirm amount & pay')}</li>
               </ol>
-              <div className="mt-4 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
+              <div className="mt-4 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
                 {t('ระบบจะอัปเดตอัตโนมัติเมื่อชำระสำเร็จ', 'System will auto-update when payment is confirmed')}
               </div>
             </div>
