@@ -41,6 +41,16 @@ export default function Payment() {
   // หยุด poll เมื่อ unmount
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
+  // เพิ่มใหม่: Auto redirect กลับหน้าหลักเมื่อชำระเงินสำเร็จ
+  useEffect(() => {
+    if (step === 'success') {
+      const timer = setTimeout(() => {
+        navigate('/'); // เปลี่ยนไปยังหน้าหลัก
+      }, 4000); // หน่วงเวลา 4 วินาที
+      return () => clearTimeout(timer);
+    }
+  }, [step, navigate]);
+
   const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
 
   // บันทึก order ใน Supabase ก่อน แล้วค่อยเรียก SCB
@@ -77,8 +87,14 @@ export default function Payment() {
     if (!oid) { setScbError(t('สร้างออเดอร์ไม่สำเร็จ', 'Failed to create order')); setQrLoading(false); return; }
     setOrderId(oid);
 
+    // ดึง session token ส่งเป็น Authorization header
+    const { data: { session } } = await supabase.auth.getSession();
+
     const { data, error } = await supabase.functions.invoke('scb-payment', {
       body: { action: 'create_qr', orderId: oid, amount: state.total },
+      headers: session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {},
     });
 
     if (error || !data?.success) {
@@ -103,18 +119,6 @@ export default function Payment() {
         setStep('success');
       }
     }, 5000);
-  };
-
-  // จำลองสำเร็จ (Sandbox กด simulate)
-  const handleSimPay = async () => {
-    setSimStatus('processing');
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (pollRef.current) clearInterval(pollRef.current);
-    await new Promise(r => setTimeout(r, 1500));
-    if (orderId) await supabase.from('orders').update({ status: 'paid' }).eq('id', orderId);
-    clearCart();
-    setSimStatus('done');
-    setTimeout(() => setStep('success'), 600);
   };
 
   const handleCardPay = async () => {
@@ -176,7 +180,7 @@ export default function Payment() {
             </svg>
           </div>
           <h2 className="text-xl font-bold mb-1">{t('ชำระสินค้าเรียบร้อย', 'Payment Successful')}</h2>
-          <p className="text-muted-foreground mb-6">{t('ขอบคุณสำหรับการสั่งซื้อ', 'Thank you for your order')}</p>
+          <p className="text-muted-foreground mb-6">{t('ขอบคุณสำหรับการสั่งซื้อ ระบบจะพากลับหน้าหลักอัตโนมัติ...', 'Thank you for your order, redirecting...')}</p>
           {state.items.map((item: any, i: number) => (
             <div key={i} className="flex items-center gap-3 mb-3 text-left border border-border rounded-lg p-3">
               <img src={item.product.imageUrl} alt="" className="w-14 h-14 object-cover rounded" />
@@ -195,7 +199,7 @@ export default function Payment() {
     </div>
   );
 
-  // QR STEP — แสดง QR จาก SCB จริง
+  // QR STEP — แสดง QR จาก SCB จริง (ลบปุ่ม Sandbox ออกแล้ว)
   if (step === 'qr') return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
@@ -251,17 +255,6 @@ export default function Payment() {
                 {t('ระบบจะอัปเดตอัตโนมัติเมื่อชำระสำเร็จ', 'System will auto-update when payment is confirmed')}
               </div>
             </div>
-          </div>
-
-          {/* Sandbox: ปุ่มจำลองสำเร็จ */}
-          <div className="mt-6 border-t border-border pt-4">
-            <p className="text-xs text-center text-muted-foreground mb-3">
-              🧪 {t('โหมด Sandbox — กดปุ่มด้านล่างเพื่อจำลองการชำระเงิน', 'Sandbox mode — click below to simulate payment')}
-            </p>
-            <button onClick={handleSimPay} disabled={saving || timeLeft === 0}
-              className="btn-order w-full py-3 disabled:opacity-50">
-              {saving ? t('กำลังบันทึก...','Saving...') : t('✅ Simulate Payment (Sandbox)', '✅ Simulate Payment (Sandbox)')}
-            </button>
           </div>
         </div>
       </div>

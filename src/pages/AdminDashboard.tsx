@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
@@ -6,6 +6,8 @@ import { useAdminProducts, DbProduct } from '@/hooks/useProducts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import {
   Shield, LogOut, Plus, Pencil, Trash2, Upload, X, Package,
   ChevronUp, Save, ImagePlus, AlertCircle, TrendingUp, BarChart2,
@@ -28,7 +30,7 @@ const emptyForm = {
 };
 
 interface Order {
-  id: string; created_at: string; customer_name: string;
+  id: string; created_at: string; customer_name: string; email?: string;
   total: number; subtotal: number; shipping_fee: number;
   payment_method: string; status: string;
   items: { name: string; price: number; quantity: number }[];
@@ -52,7 +54,7 @@ export default function AdminDashboard() {
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState('');
-  const [saveSuccess, setSaveSuccess] = useState(false); // แสดง success แทน navigate
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -75,23 +77,6 @@ export default function AdminDashboard() {
     setOrders((data as Order[]) || []);
     setOrdersLoading(false);
   };
-
-  if (isLoading) return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-muted-foreground">กำลังตรวจสอบสิทธิ์...</div>
-    </div>
-  );
-
-  if (!isAdmin) return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-center">
-        <Shield className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-        <h2 className="text-xl font-bold text-foreground mb-2">ไม่มีสิทธิ์เข้าถึง</h2>
-        <p className="text-muted-foreground mb-4">คุณต้องล็อกอินด้วยบัญชี Admin</p>
-        <Button onClick={() => navigate('/admin/login')}>ไปหน้า Admin Login</Button>
-      </div>
-    </div>
-  );
 
   const handleLogout = async () => { await supabase.auth.signOut(); navigate('/admin/login'); };
 
@@ -133,7 +118,6 @@ export default function AdminDashboard() {
     setSaving(false);
     if (err) { setError('บันทึกไม่สำเร็จ: ' + err.message); return; }
 
-    // แสดง success toast แล้วรีเซ็ตฟอร์ม — ไม่ navigate ออกไปไหน
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
     setShowForm(false); setEditId(null); setForm({ ...emptyForm });
@@ -190,9 +174,58 @@ export default function AdminDashboard() {
   const outOfStock = products.filter(p => p.stock === 0);
   const lowStock = products.filter(p => p.stock > 0 && p.stock <= 3);
 
+  // === ลอจิกใหม่: จัดกลุ่มคำสั่งซื้อตาม Email ===
+  const groupedCustomerOrders = useMemo(() => {
+    const groups: Record<string, { email: string, name: string, total: number, items: Record<string, any> }> = {};
+
+    paidOrders.forEach(o => {
+      // ใช้ Email เป็น Key หลัก ถ้าไม่มีให้ใช้ชื่อลูกค้า
+      const key = o.email || o.customer_name || 'ไม่ระบุตัวตน'; 
+      
+      if (!groups[key]) {
+        groups[key] = { email: o.email || '-', name: o.customer_name || '-', total: 0, items: {} };
+      }
+      
+      // รวมยอดเงินทั้งหมดของลูกค้ารายนี้
+      groups[key].total += o.total;
+
+      // รวมจำนวนสินค้าที่ซ้ำกัน
+      if (o.items) {
+        o.items.forEach(item => {
+          if (!groups[key].items[item.name]) {
+            groups[key].items[item.name] = { ...item };
+          } else {
+            groups[key].items[item.name].quantity += item.quantity;
+          }
+        });
+      }
+    });
+
+    return Object.values(groups).map(g => ({
+      ...g,
+      itemsList: Object.values(g.items)
+    }));
+  }, [paidOrders]);
+
+  if (isLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-muted-foreground">กำลังตรวจสอบสิทธิ์...</div>
+    </div>
+  );
+
+  if (!isAdmin) return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-center">
+        <Shield className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+        <h2 className="text-xl font-bold text-foreground mb-2">ไม่มีสิทธิ์เข้าถึง</h2>
+        <p className="text-muted-foreground mb-4">คุณต้องล็อกอินด้วยบัญชี Admin</p>
+        <Button onClick={() => navigate('/admin/login')}>ไปหน้า Admin Login</Button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Success Toast */}
       {saveSuccess && (
         <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-green-600 text-white px-4 py-3 rounded-xl shadow-xl animate-in fade-in slide-in-from-top-2">
           <CheckCircle size={18} />
@@ -217,7 +250,6 @@ export default function AdminDashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {(['warhammer40k','ageofsigmar','killteam','boardgame'] as Category[]).map((cat) => (
             <div key={cat} className="bg-card rounded-xl border border-border p-4">
@@ -228,7 +260,6 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* Stock Alerts */}
         {(outOfStock.length > 0 || lowStock.length > 0) && (
           <div className="space-y-2">
             {outOfStock.length > 0 && (
@@ -252,7 +283,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* View Toggle */}
         <div className="flex items-center gap-2">
           <button onClick={() => setViewMode('stock')}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold border transition-all ${viewMode==='stock' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:border-primary/50'}`}>
@@ -264,7 +294,7 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        {/* ===== STOCK VIEW ===== */}
+        {/* ===== STOCK VIEW (เดิม) ===== */}
         {viewMode === 'stock' && (
           <div>
             <div className="flex flex-wrap gap-3 items-center justify-between mb-4">
@@ -284,7 +314,6 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Form */}
             {showForm && (
               <div className="bg-card rounded-xl border border-border p-6 space-y-5 mb-6">
                 <h3 className="font-bold text-foreground text-base">
@@ -366,7 +395,6 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* Table */}
             {loading ? (
               <div className="flex items-center justify-center h-48 text-muted-foreground">กำลังโหลด...</div>
             ) : products.length === 0 ? (
@@ -435,7 +463,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ===== REPORT VIEW ===== */}
+        {/* ===== REPORT VIEW (อัปเดตใหม่) ===== */}
         {viewMode === 'report' && (
           <div>
             <div className="flex gap-2 mb-6">
@@ -460,46 +488,68 @@ export default function AdminDashboard() {
                 <p className="text-2xl font-bold">{Math.round(avgOrder).toLocaleString()}</p><p className="text-xs text-muted-foreground">บาท</p>
               </div>
             </div>
+            
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-5 py-4 border-b border-border flex items-center gap-2">
                 <Calendar size={16} className="text-primary"/>
-                <h3 className="font-semibold text-foreground">รายการที่ลูกค้าซื้อ</h3>
+                <h3 className="font-semibold text-foreground">รายการที่ลูกค้าซื้อ (แยกตามรายบุคคล)</h3>
                 <span className="text-xs text-muted-foreground ml-auto">{rangeLabels[reportRange]}</span>
               </div>
+
               {ordersLoading ? (
                 <div className="flex items-center justify-center h-32 text-muted-foreground">กำลังโหลด...</div>
-              ) : orders.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2"><TrendingUp size={32} className="opacity-30"/><p>ยังไม่มีคำสั่งซื้อ</p></div>
+              ) : paidOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2"><TrendingUp size={32} className="opacity-30"/><p>ยังไม่มีคำสั่งซื้อที่ชำระเงินแล้ว</p></div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50 border-b border-border">
-                      <tr>
-                        <th className="text-left px-4 py-3 text-muted-foreground font-medium">วันที่</th>
-                        <th className="text-left px-4 py-3 text-muted-foreground font-medium">ลูกค้า</th>
-                        <th className="text-left px-4 py-3 text-muted-foreground font-medium">รายการสินค้า</th>
-                        <th className="text-left px-4 py-3 text-muted-foreground font-medium">ช่องทาง</th>
-                        <th className="text-right px-4 py-3 text-muted-foreground font-medium">ยอด</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {orders.map((o)=>(
-                        <tr key={o.id} className="hover:bg-muted/30">
-                          <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                            {new Date(o.created_at).toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}
-                          </td>
-                          <td className="px-4 py-3 text-foreground">{o.customer_name||'-'}</td>
-                          <td className="px-4 py-3 max-w-xs">
-                            {(o.items||[]).map((item,i)=>(
-                              <p key={i} className="text-xs text-muted-foreground truncate">{item.name} ×{item.quantity}</p>
-                            ))}
-                          </td>
-                          <td className="px-4 py-3"><span className="text-xs bg-muted px-2 py-0.5 rounded-full">{o.payment_method}</span></td>
-                          <td className="px-4 py-3 text-right font-semibold text-foreground">฿{o.total.toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="p-4">
+                  <Accordion type="multiple" className="w-full space-y-2">
+                    {groupedCustomerOrders.map((customer, idx) => (
+                      <AccordionItem key={idx} value={`item-${idx}`} className="bg-muted/10 border border-border rounded-lg px-4 data-[state=open]:bg-muted/30">
+                        <AccordionTrigger className="hover:no-underline">
+                          <div className="flex justify-between items-center w-full pr-4">
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="font-semibold text-foreground text-base">
+                                {customer.email !== '-' ? customer.email : customer.name}
+                              </span>
+                              <span className="text-xs text-muted-foreground font-normal">
+                                ชื่อลูกค้า: {customer.name}
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xs text-muted-foreground block mb-1 font-normal">ยอดรวมทั้งหมด</span>
+                              <span className="font-bold text-primary text-base">฿{customer.total.toLocaleString()}</span>
+                            </div>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="pt-2 pb-4 border-t border-border mt-2">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-muted/50 hover:bg-muted/50">
+                                <TableHead className="w-[50px] font-semibold text-foreground">ลำดับ</TableHead>
+                                <TableHead className="font-semibold text-foreground">รายละเอียดสินค้า</TableHead>
+                                <TableHead className="text-right font-semibold text-foreground">จำนวนรวม</TableHead>
+                                <TableHead className="text-right font-semibold text-foreground">ราคา/หน่วย</TableHead>
+                                <TableHead className="text-right font-semibold text-foreground">รวมเป็นเงิน</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {customer.itemsList.map((item: any, i: number) => (
+                                <TableRow key={i}>
+                                  <TableCell className="text-muted-foreground">{i + 1}</TableCell>
+                                  <TableCell className="font-medium text-foreground">{item.name}</TableCell>
+                                  <TableCell className="text-right font-semibold text-foreground">{item.quantity} หน่วย</TableCell>
+                                  <TableCell className="text-right text-muted-foreground">฿{item.price.toLocaleString()}</TableCell>
+                                  <TableCell className="text-right font-semibold text-foreground">
+                                    ฿{(item.price * item.quantity).toLocaleString()}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
                 </div>
               )}
             </div>
