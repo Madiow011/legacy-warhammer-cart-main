@@ -11,14 +11,14 @@ interface HeaderProps {
 
 // ข้อ 1: หมวดหมู่ทั้งหมด
 const CATEGORIES = [
-  { value: 'warhammer40k', th: 'Warhammer 40,000', en: 'Warhammer 40,000' },
-  { value: 'ageofsigmar',  th: 'Age of Sigmar',    en: 'Age of Sigmar'    },
-  { value: 'killteam',     th: 'Kill Team',         en: 'Kill Team'        },
-  { value: 'boardgame',    th: 'เกมกระดาน',         en: 'Board Game'       },
-  { value: 'cardgame',     th: 'เกมการ์ด',          en: 'Card Game'        },
-  { value: 'rpg',          th: 'เกม RPG',           en: 'RPG Game'         },
-  { value: 'puzzlegame',   th: 'เกมปริศนา',         en: 'Puzzle Game'      },
-  { value: 'partygame',    th: 'เกมปาร์ตี้',        en: 'Party Game'       },
+  { value: 'warhammer40k', th: 'มินิเจอร์สงคราม',   en: 'War Miniatures'   },
+  { value: 'ageofsigmar',  th: 'มินิเจอร์แฟนตาซี',  en: 'Fantasy Miniatures'},
+  { value: 'killteam',     th: 'มินิเจอร์ทีม',       en: 'Team Miniatures'  },
+  { value: 'boardgame',    th: 'เกมกระดาน',           en: 'Board Game'       },
+  { value: 'cardgame',     th: 'เกมการ์ด',            en: 'Card Game'        },
+  { value: 'rpg',          th: 'เกม RPG',             en: 'RPG Game'         },
+  { value: 'puzzlegame',   th: 'เกมปริศนา',           en: 'Puzzle Game'      },
+  { value: 'partygame',    th: 'เกมปาร์ตี้',          en: 'Party Game'       },
 ];
 
 export default function Header({ searchValue = '', onSearchChange, onSearchSubmit }: HeaderProps) {
@@ -124,7 +124,7 @@ export default function Header({ searchValue = '', onSearchChange, onSearchSubmi
           {showCatMenu && (
             <div className="absolute left-0 top-full mt-0.5 w-48 bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden">
               <div className="py-1">
-                <div className="px-3 py-1.5 text-xs text-muted-foreground font-semibold uppercase tracking-wide bg-muted/50">Warhammer</div>
+                <div className="px-3 py-1.5 text-xs text-muted-foreground font-semibold uppercase tracking-wide bg-muted/50">มินิเจอร์</div>
                 {CATEGORIES.slice(0, 3).map((cat) => (
                   <button key={cat.value} onClick={() => { navigate(`/?category=${cat.value}`); setShowCatMenu(false); }}
                     className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors">

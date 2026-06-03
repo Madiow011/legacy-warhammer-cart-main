@@ -141,14 +141,22 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const addToCart = (product: Product, qty = 1) => {
     setCart((prev) => {
       const existing = prev.find((i) => i.product.id === product.id);
-      if (existing) return prev.map((i) => i.product.id === product.id ? { ...i, quantity: i.quantity + qty } : i);
-      return [...prev, { product, quantity: qty }];
+      const maxStock = product.stock ?? 99;
+      if (existing) {
+        const newQty = Math.min(existing.quantity + qty, maxStock);
+        return prev.map((i) => i.product.id === product.id ? { ...i, quantity: newQty } : i);
+      }
+      return [...prev, { product, quantity: Math.min(qty, maxStock) }];
     });
   };
   const removeFromCart = (productId: number) => setCart((prev) => prev.filter((i) => i.product.id !== productId));
   const updateQuantity = (productId: number, qty: number) => {
     if (qty <= 0) { removeFromCart(productId); return; }
-    setCart((prev) => prev.map((i) => i.product.id === productId ? { ...i, quantity: qty } : i));
+    setCart((prev) => prev.map((i) => {
+      if (i.product.id !== productId) return i;
+      const maxStock = i.product.stock ?? 99;
+      return { ...i, quantity: Math.min(qty, maxStock) };
+    }));
   };
   const clearCart = () => setCart([]);
   const toggleWishlist = (productId: number) => setWishlist((prev) =>

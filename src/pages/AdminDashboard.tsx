@@ -9,16 +9,16 @@ import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import {
-  Shield, LogOut, Plus, Pencil, Trash2, Upload, X, Package,
-  ChevronUp, Save, ImagePlus, AlertCircle, TrendingUp, BarChart2,
-  DollarSign, Calendar, AlertTriangle, CheckCircle
+Shield, LogOut, Plus, Pencil, Trash2, Upload, X, Package,
+ChevronUp, Save, ImagePlus, AlertCircle, TrendingUp, BarChart2,
+DollarSign, Calendar, AlertTriangle, CheckCircle
 } from 'lucide-react';
 import { products as staticProducts } from '@/data/products';
 
 type Category = 'warhammer40k' | 'ageofsigmar' | 'killteam' | 'cardgame' | 'boardgame' | 'rpg' | 'puzzlegame' | 'partygame';
 
 const categoryLabels: Record<Category, string> = {
-  warhammer40k: 'Warhammer 40,000', ageofsigmar: 'Age of Sigmar', killteam: 'Kill Team',
+  warhammer40k: 'มินิเจอร์สงคราม', ageofsigmar: 'มินิเจอร์แฟนตาซี', killteam: 'มินิเจอร์ทีม',
   cardgame: 'เกมการ์ด', boardgame: 'เกมกระดาน', rpg: 'เกม RPG',
   puzzlegame: 'เกมปริศนา', partygame: 'เกมปาร์ตี้',
 };
@@ -43,7 +43,6 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { isAdmin, isLoading } = useAdminAuth();
   const { products, loading, refetch } = useAdminProducts();
-
   const [viewMode, setViewMode] = useState<ViewMode>('stock');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
@@ -57,7 +56,6 @@ export default function AdminDashboard() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [reportRange, setReportRange] = useState<ReportRange>('30days');
@@ -117,7 +115,6 @@ export default function AdminDashboard() {
     }
     setSaving(false);
     if (err) { setError('บันทึกไม่สำเร็จ: ' + err.message); return; }
-
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
     setShowForm(false); setEditId(null); setForm({ ...emptyForm });
@@ -167,29 +164,21 @@ export default function AdminDashboard() {
   const removeDesc = (arr: string[], idx: number, key: 'description' | 'description_en') =>
     setForm((f) => ({ ...f, [key]: arr.filter((_, i) => i !== idx) }));
 
-  const paidOrders = orders.filter(o => o.status === 'paid' || o.status === 'pending');
+  const paidOrders = orders.filter(o => o.status === 'paid');
   const totalRevenue = paidOrders.reduce((s, o) => s + o.total, 0);
   const avgOrder = paidOrders.length > 0 ? totalRevenue / paidOrders.length : 0;
   const rangeLabels: Record<ReportRange, string> = { today:'วันนี้', '7days':'7 วัน', '30days':'30 วัน', all:'ทั้งหมด' };
-  const outOfStock = products.filter(p => p.stock === 0);
-  const lowStock = products.filter(p => p.stock > 0 && p.stock <= 3);
+  const outOfStock = products.filter(p => (p as any)._fromDb && p.stock === 0);
+  const lowStock = products.filter(p => (p as any)._fromDb && p.stock > 0 && p.stock <= 3);
 
-  // === ลอจิกใหม่: จัดกลุ่มคำสั่งซื้อตาม Email ===
   const groupedCustomerOrders = useMemo(() => {
     const groups: Record<string, { email: string, name: string, total: number, items: Record<string, any> }> = {};
-
     paidOrders.forEach(o => {
-      // ใช้ Email เป็น Key หลัก ถ้าไม่มีให้ใช้ชื่อลูกค้า
-      const key = o.email || o.customer_name || 'ไม่ระบุตัวตน'; 
-      
+      const key = o.email || o.customer_name || 'ไม่ระบุตัวตน';
       if (!groups[key]) {
         groups[key] = { email: o.email || '-', name: o.customer_name || '-', total: 0, items: {} };
       }
-      
-      // รวมยอดเงินทั้งหมดของลูกค้ารายนี้
       groups[key].total += o.total;
-
-      // รวมจำนวนสินค้าที่ซ้ำกัน
       if (o.items) {
         o.items.forEach(item => {
           if (!groups[key].items[item.name]) {
@@ -200,7 +189,6 @@ export default function AdminDashboard() {
         });
       }
     });
-
     return Object.values(groups).map(g => ({
       ...g,
       itemsList: Object.values(g.items)
@@ -294,7 +282,7 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        {/* ===== STOCK VIEW (เดิม) ===== */}
+        {/* ===== STOCK VIEW ===== */}
         {viewMode === 'stock' && (
           <div>
             <div className="flex flex-wrap gap-3 items-center justify-between mb-4">
@@ -329,7 +317,6 @@ export default function AdminDashboard() {
                   <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange}/>
                   {imagePreview && <button onClick={() => { setImagePreview(''); setImageFile(null); setForm(f=>({...f,image_url:''})); }} className="text-xs text-destructive hover:underline flex items-center gap-1"><X size={12}/>ลบรูป</button>}
                 </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="text-sm font-medium mb-1 block">ชื่อสินค้า (TH) *</label><Input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></div>
                   <div><label className="text-sm font-medium mb-1 block">ชื่อสินค้า (EN)</label><Input value={form.name_en} onChange={e=>setForm(f=>({...f,name_en:e.target.value}))}/></div>
@@ -339,10 +326,10 @@ export default function AdminDashboard() {
                     <label className="text-sm font-medium mb-1 block">หมวดหมู่ *</label>
                     <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value as Category}))}
                       className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                      <optgroup label="Warhammer">
-                        <option value="warhammer40k">Warhammer 40,000</option>
-                        <option value="ageofsigmar">Age of Sigmar</option>
-                        <option value="killteam">Kill Team</option>
+                      <optgroup label="มินิเจอร์">
+                        <option value="warhammer40k">มินิเจอร์สงคราม</option>
+                        <option value="ageofsigmar">มินิเจอร์แฟนตาซี</option>
+                        <option value="killteam">มินิเจอร์ทีม</option>
                       </optgroup>
                       <optgroup label="บอร์ดเกม">
                         <option value="boardgame">เกมกระดาน</option>
@@ -356,7 +343,6 @@ export default function AdminDashboard() {
                   <div><label className="text-sm font-medium mb-1 block">วัสดุ</label><Input value={form.material} onChange={e=>setForm(f=>({...f,material:e.target.value}))}/></div>
                   <div className="md:col-span-2"><label className="text-sm font-medium mb-1 block">ประเภท</label><Input value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}/></div>
                 </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium mb-2 block">รายละเอียด (TH)</label>
@@ -383,12 +369,11 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 </div>
-
                 <div className="flex gap-3 pt-2">
                   <Button onClick={handleSave} disabled={saving||uploading}>
                     {uploading ? <><Upload size={14} className="mr-1"/>กำลังอัปโหลด...</> :
-                     saving    ? <><Save size={14} className="mr-1"/>กำลังบันทึก...</> :
-                                 <><Save size={14} className="mr-1"/>บันทึก</>}
+                    saving ? <><Save size={14} className="mr-1"/>กำลังบันทึก...</> :
+                    <><Save size={14} className="mr-1"/>บันทึก</>}
                   </Button>
                   <Button variant="outline" onClick={handleCancel}>ยกเลิก</Button>
                 </div>
@@ -463,7 +448,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ===== REPORT VIEW (อัปเดตใหม่) ===== */}
+        {/* ===== REPORT VIEW ===== */}
         {viewMode === 'report' && (
           <div>
             <div className="flex gap-2 mb-6">
@@ -488,14 +473,12 @@ export default function AdminDashboard() {
                 <p className="text-2xl font-bold">{Math.round(avgOrder).toLocaleString()}</p><p className="text-xs text-muted-foreground">บาท</p>
               </div>
             </div>
-            
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-5 py-4 border-b border-border flex items-center gap-2">
                 <Calendar size={16} className="text-primary"/>
                 <h3 className="font-semibold text-foreground">รายการที่ลูกค้าซื้อ (แยกตามรายบุคคล)</h3>
                 <span className="text-xs text-muted-foreground ml-auto">{rangeLabels[reportRange]}</span>
               </div>
-
               {ordersLoading ? (
                 <div className="flex items-center justify-center h-32 text-muted-foreground">กำลังโหลด...</div>
               ) : paidOrders.length === 0 ? (

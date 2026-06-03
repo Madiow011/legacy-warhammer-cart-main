@@ -28,37 +28,51 @@ export default function Payment() {
   const [scbError, setScbError] = useState('');
   const [qrLoading, setQrLoading] = useState(false);
   
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<number | null>(null);
   const autoRedirectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 🟢 Polling เช็ค order status จริงหลังสแกน QR — เมื่อ paid → success อัตโนมัติ
   useEffect(() => {
-    if (step === 'qr') {
-      setTimeLeft(TIMER_SECONDS);
-      timerRef.current = setInterval(() => setTimeLeft(t => { if (t <= 1) { clearInterval(timerRef.current!); return 0; } return t - 1; }), 1000);
-      
-      // 🟢 สำหรับพรีเซนต์: ตั้งเวลา 12 วินาทีให้เด้งหน้าสำเร็จอัตโนมัติ
-      autoRedirectRef.current = setTimeout(() => {
-         // แกล้งอัปเดต DB เพื่อความเนียน
-         if (orderId) {
-             supabase.from('orders').update({ status: 'paid' }).eq('id', orderId).then();
-         }
-         if (timerRef.current) clearInterval(timerRef.current);
-         clearCart();
-         setStep('success');
-      }, 12000); // <-- 12 วินาที (เปลี่ยนตัวเลขตรงนี้ได้ ถ้าอยากให้ช้าหรือเร็วขึ้น 1000 = 1 วินาที)
-      
-    }
-    return () => { 
-        if (timerRef.current) clearInterval(timerRef.current); 
-        if (autoRedirectRef.current) clearTimeout(autoRedirectRef.current);
-    };
-  }, [step, orderId, clearCart]);
+    if (step !== 'qr' || !orderId) return;
 
-  // Auto redirect กลับหน้าหลักเมื่อชำระเงินสำเร็จ
+    setTimeLeft(TIMER_SECONDS);
+
+    // นาฬิกาถอยหลัง
+    timerRef.current = window.setInterval(() => {
+      setTimeLeft((t) => {
+        if (t <= 1) { window.clearInterval(timerRef.current!); return 0; }
+        return t - 1;
+      });
+    }, 1000);
+
+    // Poll เช็คสถานะจาก DB ทุก 3 วินาที
+    const pollInterval = window.setInterval(async () => {
+      try {
+        const { data: order } = await supabase
+          .from('orders').select('status').eq('id', orderId).single();
+        if (order?.status === 'paid') {
+          window.clearInterval(pollInterval);
+          window.clearInterval(timerRef.current!);
+          // ✅ ไม่หักสต็อกที่นี่ — Edge Function (Webhook) จัดการแล้ว
+          clearCart();
+          setStep('success');
+        }
+      } catch (_) {}
+    }, 3000);
+
+    autoRedirectRef.current = pollInterval as any;
+
+    return () => {
+      window.clearInterval(timerRef.current!);
+      window.clearInterval(pollInterval);
+    };
+  }, [step, orderId]);
+
+  // ระบบ Auto redirect กลับหน้าหลักเมื่อชำระเงินสำเร็จ
   useEffect(() => {
     if (step === 'success') {
       const timer = setTimeout(() => {
-        navigate('/'); // พากลับหน้าหลักใน 4 วินาที
+        navigate('/'); // พากลับหน้าหลักอัตโนมัติใน 4 วินาที
       }, 4000); 
       return () => clearTimeout(timer);
     }
@@ -66,13 +80,21 @@ export default function Payment() {
 
   const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
 
-  // บันทึก order ใน Supabase
+  // บันทึกคำสั่งซื้อใน Supabase
   const createOrder = async (): Promise<string | null> => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const orderItems = state.items.map((i: any) => ({ name: i.product.name, price: i.product.price, quantity: i.quantity }));
+      
+      const orderItems = state.items.map((i: any) => ({ 
+        id: i.product.id, 
+        name: i.product.name, 
+        price: i.product.price, 
+        quantity: i.quantity 
+      }));
+
       const { data, error } = await supabase.from('orders').insert({
         user_id: session?.user?.id,
+        email: session?.user?.email || '',
         customer_name: state.form.name || '',
         phone: state.form.phone || '',
         province: state.form.province || '',
@@ -87,6 +109,7 @@ export default function Payment() {
         payment_method: 'promptpay',
         status: 'pending',
       } as any).select('id').single();
+      
       if (error || !data) return null;
       return data.id;
     } catch { return null; }
@@ -126,25 +149,58 @@ export default function Payment() {
     setSimStatus('processing');
     await new Promise(r => setTimeout(r, 1500));
     const { data: { session } } = await supabase.auth.getSession();
-    const orderItems = state.items.map((i: any) => ({ name: i.product.name, price: i.product.price, quantity: i.quantity }));
+    
+    const orderItems = state.items.map((i: any) => ({ 
+      id: i.product.id, 
+      name: i.product.name, 
+      price: i.product.price, 
+      quantity: i.quantity 
+    }));
+
     await supabase.from('orders').insert({
       user_id: session?.user?.id,
+      email: session?.user?.email || '',
       customer_name: state.form.name || '',
       phone: state.form.phone || '',
+      province: state.form?.province || '',
+      district: state.form?.district || '',
+      subdistrict: state.form?.subdistrict || '',
+      zipcode: state.form?.zipcode || '',
+      detail: state.form?.detail || '',
       items: orderItems, subtotal: state.subtotal,
       shipping_fee: state.shipping, total: state.total,
       payment_method: paymentMethod, status: 'paid',
     } as any);
+
     clearCart();
     setSimStatus('done');
     setTimeout(() => setStep('success'), 600);
   };
 
-  // 🟢 ฟังก์ชันเผื่อพรีเซนต์ (ดับเบิ้ลคลิกที่ QR Code เพื่อเด้งไปหน้าสำเร็จทันที)
-  const forceSuccess = () => {
+  // ดับเบิ้ลคลิก QR → simulate payment ผ่าน Edge Function (สำหรับ SCB Sandbox)
+  const forceSuccess = async () => {
+    if (!orderId) return;
     if (autoRedirectRef.current) clearTimeout(autoRedirectRef.current);
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (orderId) supabase.from('orders').update({ status: 'paid' }).eq('id', orderId).then();
+    if (timerRef.current) window.clearInterval(timerRef.current);
+
+    try {
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/scb-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ action: 'simulate_payment', orderId }),
+      });
+      const data = await res.json();
+      console.log('[simulate_payment]', data);
+    } catch (err) {
+      console.error('[simulate_payment] error:', err);
+    }
+
     clearCart();
     setStep('success');
   };
@@ -177,7 +233,7 @@ export default function Payment() {
     </div>
   );
 
-  // SUCCESS
+  // SUCCESS (หน้าจอเครื่องหมายถูกสีเขียวแสดงผลตามเวลาจริง)
   if (step === 'success') return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
@@ -192,7 +248,7 @@ export default function Payment() {
           <p className="text-muted-foreground mb-6">{t('ขอบคุณสำหรับการสั่งซื้อ ระบบจะพากลับหน้าหลักอัตโนมัติ...', 'Thank you for your order, redirecting...')}</p>
           {state.items.map((item: any, i: number) => (
             <div key={i} className="flex items-center gap-3 mb-3 text-left border border-border rounded-lg p-3">
-              <img src={item.product.imageUrl} alt="" className="w-14 h-14 object-cover rounded" />
+              <img src={item.product.imageUrl || item.product.image_url} alt="" className="w-14 h-14 object-cover rounded" />
               <div className="flex-1"><p className="text-sm font-medium">{item.product.name}</p><p className="text-xs text-muted-foreground">×{item.quantity}</p></div>
               <span className="text-sm font-semibold">{(item.product.price * item.quantity).toLocaleString()} {t('บาท','THB')}</span>
             </div>
@@ -327,7 +383,7 @@ export default function Payment() {
           <h2 className="font-bold text-lg mb-4 text-center">{t('เลือกช่องทางชำระเงิน','Select Payment Method')}</h2>
           {state.items.map((item: any, i: number) => (
             <div key={i} className="flex items-center gap-3 mb-3 border border-border rounded p-2">
-              <img src={item.product.imageUrl} alt="" className="w-12 h-12 object-cover rounded" />
+              <img src={item.product.imageUrl || item.product.image_url} alt="" className="w-12 h-12 object-cover rounded" />
               <div className="flex-1 text-sm">
                 <p className="font-medium">{item.product.name}</p>
                 <p className="text-muted-foreground">×{item.quantity}</p>

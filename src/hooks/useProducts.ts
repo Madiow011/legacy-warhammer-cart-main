@@ -15,12 +15,13 @@ export interface DbProduct {
   material: string;
   type: string;
   stock: number;
+  _fromDb?: boolean; // true = stock มาจาก Supabase จริง
 }
 
 const staticImageByName = Object.fromEntries(staticProducts.map((p) => [p.name.toLowerCase(), p.imageUrl]));
 const staticImageById   = Object.fromEntries(staticProducts.map((p) => [p.id, p.imageUrl]));
 
-const mergeImage = (p: any): DbProduct => ({
+const mergeImage = (p: any): DbProduct => ({ _fromDb: true,
   ...p,
   description:    Array.isArray(p.description)    ? p.description    : [],
   description_en: Array.isArray(p.description_en) ? p.description_en : [],
@@ -44,28 +45,33 @@ export function useProducts(category?: string | null, search?: string) {
       .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()))
       .map(toDbFormat);
 
-  const [products, setProducts] = useState<DbProduct[]>(getFiltered);
-  const [loading, setLoading] = useState(false);
+  const [products, setProducts] = useState<DbProduct[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const fetchFromSupabase = async () => {
+    setLoading(true);
     try {
       let query = supabase.from('products').select('*').order('id');
       if (category) query = query.eq('category', category);
       if (search)   query = query.ilike('name', `%${search}%`);
       const { data, error } = await query;
-      // อัปเดตเฉพาะเมื่อ DB มีข้อมูลจริง
-      if (!error && data && data.length > 0) setProducts(data.map(mergeImage));
-      else if (!error && data && data.length === 0 && category) {
-        // หมวดหมู่ใหม่ที่ยังไม่มีใน static — แสดง empty
-        setProducts([]);
+      if (!error && data && data.length > 0) {
+        setProducts(data.map(mergeImage));
+      } else if (!error && data && data.length === 0) {
+        // DB ว่างหรือหมวดหมู่ใหม่ — fallback static
+        setProducts(getFiltered());
       }
-    } catch (_) {}
+    } catch (_) {
+      // network error — fallback static
+      setProducts(getFiltered());
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    // แสดง static ทันที
-    setProducts(getFiltered());
-    // แล้วค่อย sync จาก DB
+    // โหลดจาก Supabase เสมอ ไม่แสดง static ก่อน (ป้องกัน stock ผิด)
+    setProducts([]);
     fetchFromSupabase();
   }, [category, search]);
 

@@ -13,14 +13,15 @@ function isDbProduct(p: Product | DbProduct): p is DbProduct {
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
-  const { user, addToCart, setShowAuthModal, wishlist, toggleWishlist, language, t } = useApp();
+  const { user, cart, addToCart, setShowAuthModal, wishlist, toggleWishlist, language, t } = useApp();
   const navigate = useNavigate();
   const isWishlisted = wishlist.includes(product.id);
 
-  // ---- ข้อ 6: ตรวจสอบ stock ----
+  // ---- ตรวจสอบ stock (ใช้เฉพาะค่าจาก DB จริงเท่านั้น) ----
   const stock = product.stock ?? 0;
-  const isOutOfStock = stock === 0;
-  const isLowStock = stock > 0 && stock <= 3;
+  const isFromDb = isDbProduct(product) ? !!(product as any)._fromDb : true;
+  const isOutOfStock = isFromDb && stock === 0;
+  const isLowStock = isFromDb && stock > 0 && stock <= 3;
 
   const toStaticProduct = (): Product => {
     if (isDbProduct(product)) {
@@ -43,12 +44,16 @@ export default function ProductCard({ product }: ProductCardProps) {
 
   const handleOrder = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isOutOfStock) return; // ไม่ทำอะไรถ้าหมด
+    if (isOutOfStock) return;
     if (!user) {
       setShowAuthModal(true);
       return;
     }
-    addToCart(toStaticProduct());
+    const p = toStaticProduct();
+    const existing = cart.find((i) => i.product.id === p.id);
+    const currentQty = existing?.quantity ?? 0;
+    if (currentQty >= stock) return; // ตะกร้ามีครบแล้ว ไม่เพิ่ม
+    addToCart(p);
     navigate('/cart');
   };
 

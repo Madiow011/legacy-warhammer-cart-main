@@ -341,7 +341,7 @@ export default function Cart() {
               <div className="flex items-center border border-border rounded-full overflow-hidden flex-shrink-0">
                 <button onClick={() => updateQuantity(item.product.id, item.quantity-1)} className="w-8 h-8 flex items-center justify-center hover:bg-muted text-muted-foreground"><Minus size={14}/></button>
                 <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                <button onClick={() => updateQuantity(item.product.id, item.quantity+1)} className="w-8 h-8 flex items-center justify-center hover:bg-muted text-muted-foreground"><Plus size={14}/></button>
+                <button onClick={() => updateQuantity(item.product.id, item.quantity+1)} disabled={item.quantity >= (item.product.stock ?? 99)} className="w-8 h-8 flex items-center justify-center hover:bg-muted text-muted-foreground disabled:opacity-30 disabled:cursor-not-allowed"><Plus size={14}/></button>
               </div>
               <span className="text-sm font-semibold w-24 text-right flex-shrink-0">{(item.product.price*item.quantity).toLocaleString()} {t('บาท','THB')}</span>
             </div>
