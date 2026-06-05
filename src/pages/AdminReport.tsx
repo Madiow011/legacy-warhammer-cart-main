@@ -42,7 +42,7 @@ export default function AdminReport() {
       query = query.gte('created_at', start.toISOString());
     }
     const { data } = await query;
-    setOrders((data as Order[]) || []);
+    setOrders((data as unknown as Order[]) || []);
     setLoading(false);
   };
 

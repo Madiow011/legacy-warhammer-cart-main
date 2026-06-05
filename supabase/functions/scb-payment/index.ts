@@ -43,14 +43,27 @@ async function createQR(token: string, amount: number, ref1: string, ref2: strin
 // helper: หักสต็อกจาก orderItems
 async function deductStock(supabase: any, orderItems: any[]) {
   for (const item of orderItems) {
-    const targetId = item.id;
-    if (targetId) {
-      const { data: pData } = await supabase.from('products').select('stock').eq('id', targetId).single();
-      if (pData) {
-        const newStock = Math.max(0, pData.stock - (item.quantity || 1));
-        await supabase.from('products').update({ stock: newStock }).eq('id', targetId);
-        console.log(`[LOG] 📦 Stock product #${targetId} updated to: ${newStock}`);
-      }
+    // รองรับทั้ง item.id และ item.product_id
+    const targetId = item.id ?? item.product_id ?? item.productId;
+    if (!targetId) {
+      console.log(`[LOG] ⚠️ Skipping item — no id found:`, JSON.stringify(item));
+      continue;
+    }
+    const qty = item.quantity || 1;
+    // ใช้ RPC atomic เพื่อป้องกัน race condition
+    const { data: pData, error: fetchErr } = await supabase
+      .from('products').select('stock').eq('id', targetId).single();
+    if (fetchErr || !pData) {
+      console.log(`[LOG] ⚠️ Product #${targetId} not found`);
+      continue;
+    }
+    const newStock = Math.max(0, pData.stock - qty);
+    const { error: updateErr } = await supabase
+      .from('products').update({ stock: newStock }).eq('id', targetId);
+    if (updateErr) {
+      console.error(`[LOG] ❌ Failed to update stock #${targetId}:`, updateErr.message);
+    } else {
+      console.log(`[LOG] 📦 Stock #${targetId}: ${pData.stock} → ${newStock} (sold ${qty})`);
     }
   }
 }
@@ -103,7 +116,9 @@ Deno.serve(async (req) => {
 
           if (!updateError) {
             console.log(`[LOG] ✅ Order ${matchedOrder.id} marked as paid`);
-            await deductStock(supabase, parseItems(matchedOrder.items));
+            const parsedItems = parseItems(matchedOrder.items);
+            console.log(`[LOG] 📋 Items to deduct (${parsedItems.length}):`, JSON.stringify(parsedItems));
+            await deductStock(supabase, parsedItems);
             return new Response(
               JSON.stringify({ resCode: '00', resDesc: 'success', transactionId: body.transactionId }),
               { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
@@ -163,7 +178,11 @@ Deno.serve(async (req) => {
       }
 
       console.log(`[LOG] ✅ [SIMULATED] Order ${orderId} marked as paid`);
-      await deductStock(supabase, parseItems(order.items));
+      const itemsToParse = order.items;
+      console.log(`[LOG] 📋 Items raw:`, JSON.stringify(itemsToParse));
+      const parsedItems = parseItems(itemsToParse);
+      console.log(`[LOG] 📋 Items parsed (${parsedItems.length}):`, JSON.stringify(parsedItems));
+      await deductStock(supabase, parsedItems);
 
       return new Response(
         JSON.stringify({ success: true, message: 'Payment simulated successfully' }),

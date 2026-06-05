@@ -21,7 +21,7 @@ export default function ProductCard({ product }: ProductCardProps) {
   const stock = product.stock ?? 0;
   const isFromDb = isDbProduct(product) ? !!(product as any)._fromDb : true;
   const isOutOfStock = isFromDb && stock === 0;
-  const isLowStock = isFromDb && stock > 0 && stock <= 3;
+  const isLowStock = isFromDb && stock > 0 && stock <= 5;
 
   const toStaticProduct = (): Product => {
     if (isDbProduct(product)) {

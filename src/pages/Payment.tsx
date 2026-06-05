@@ -30,6 +30,7 @@ export default function Payment() {
   
   const timerRef = useRef<number | null>(null);
   const autoRedirectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollIntervalRef = useRef<number | null>(null);
 
   // 🟢 Polling เช็ค order status จริงหลังสแกน QR — เมื่อ paid → success อัตโนมัติ
   useEffect(() => {
@@ -53,14 +54,13 @@ export default function Payment() {
         if (order?.status === 'paid') {
           window.clearInterval(pollInterval);
           window.clearInterval(timerRef.current!);
-          // ✅ ไม่หักสต็อกที่นี่ — Edge Function (Webhook) จัดการแล้ว
           clearCart();
           setStep('success');
         }
       } catch (_) {}
     }, 3000);
 
-    autoRedirectRef.current = pollInterval as any;
+    pollIntervalRef.current = pollInterval as any;
 
     return () => {
       window.clearInterval(timerRef.current!);
@@ -172,37 +172,43 @@ export default function Payment() {
       payment_method: paymentMethod, status: 'paid',
     } as any);
 
+    // เรียก simulate_payment เพื่อให้ Edge Function หักสต็อก
+    try {
+      const cardSession = await supabase.auth.getSession();
+      const cardOrderRes = await supabase.from('orders')
+        .select('id').eq('user_id', cardSession.data.session?.user?.id)
+        .eq('status', 'paid').order('created_at', { ascending: false }).limit(1).single();
+      if (cardOrderRes.data?.id) {
+        await supabase.functions.invoke('scb-payment', {
+          body: { action: 'simulate_payment', orderId: cardOrderRes.data.id },
+        });
+      }
+    } catch (_) {}
     clearCart();
     setSimStatus('done');
     setTimeout(() => setStep('success'), 600);
   };
 
-  // ดับเบิ้ลคลิก QR → simulate payment ผ่าน Edge Function (สำหรับ SCB Sandbox)
+  // กดปุ่ม simulate → เรียก Edge Function แล้วให้ polling detect เอง
   const forceSuccess = async () => {
     if (!orderId) return;
-    if (autoRedirectRef.current) clearTimeout(autoRedirectRef.current);
-    if (timerRef.current) window.clearInterval(timerRef.current);
-
     try {
-      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/scb-payment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'apikey': SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({ action: 'simulate_payment', orderId }),
+      const { data, error } = await supabase.functions.invoke('scb-payment', {
+        body: { action: 'simulate_payment', orderId },
       });
-      const data = await res.json();
-      console.log('[simulate_payment]', data);
+      console.log('[simulate_payment]', data, error);
+      // ถ้า invoke สำเร็จ polling จะ detect status=paid แล้วไป success เอง
+      // แต่ถ้า error ให้ fallback ไป success ด้วย
+      if (error) {
+        console.error('[simulate_payment] invoke error:', error);
+        clearCart();
+        setStep('success');
+      }
     } catch (err) {
       console.error('[simulate_payment] error:', err);
+      clearCart();
+      setStep('success');
     }
-
-    clearCart();
-    setStep('success');
   };
 
   if (!state) { navigate('/'); return null; }
@@ -320,6 +326,12 @@ export default function Payment() {
               <div className="mt-4 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
                 {t('ระบบจะอัปเดตอัตโนมัติเมื่อชำระสำเร็จ', 'System will auto-update when payment is confirmed')}
               </div>
+              <button
+                onClick={forceSuccess}
+                className="mt-3 w-full py-2 rounded-lg bg-[#4B2E83] text-white text-xs font-bold hover:bg-[#3a2266] transition-colors"
+              >
+                ✅ {t('จำลองการชำระเงิน (Sandbox)', 'Simulate Payment (Sandbox)')}
+              </button>
             </div>
           </div>
         </div>
@@ -334,10 +346,11 @@ export default function Payment() {
       <div className="flex flex-1 items-center justify-center px-4 py-8">
         <div className="bg-card rounded-xl border border-border p-6 max-w-md w-full">
           <h2 className="font-bold text-lg mb-4 text-center">{paymentMethod === 'visa' ? 'VISA' : 'MasterCard'} {t('ชำระเงิน','Payment')}</h2>
-          <div className="space-y-4 mb-6">
+
+          <div className="space-y-3 mb-5">
             <div>
               <label className="block text-xs text-muted-foreground mb-1">{t('หมายเลขบัตร','Card Number')}</label>
-              <input className="input-field" placeholder="0000 0000 0000 0000" maxLength={19} value={cardForm.cardNumber}
+              <input className="input-field font-mono" placeholder="0000 0000 0000 0000" maxLength={19} value={cardForm.cardNumber}
                 onChange={e => { const v = e.target.value.replace(/\D/g,'').replace(/(.{4})/g,'$1 ').trim(); setCardForm(p=>({...p,cardNumber:v})); }} />
             </div>
             <div>

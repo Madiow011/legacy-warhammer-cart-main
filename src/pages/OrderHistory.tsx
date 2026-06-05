@@ -15,6 +15,12 @@ interface Order {
   id: string;
   created_at: string;
   customer_name: string;
+  phone?: string;
+  subdistrict?: string;
+  district?: string;
+  province?: string;
+  zipcode?: string;
+  detail?: string;
   items: OrderItem[];
   subtotal: number;
   shipping_fee: number;
@@ -55,7 +61,7 @@ export default function OrderHistory() {
       .select('*')
       .eq('user_id', user!.id)
       .order('created_at', { ascending: false });
-    if (!error && data) setOrders(data as Order[]);
+    if (!error && data) setOrders(data as unknown as Order[]);
     setLoading(false);
   };
 
@@ -153,8 +159,12 @@ export default function OrderHistory() {
                       {/* Shipping address */}
                       {order.customer_name && (
                         <div className="bg-muted rounded-lg px-4 py-3 text-xs text-muted-foreground space-y-0.5">
-                          <p className="font-medium text-foreground">{t('ที่อยู่จัดส่ง', 'Shipping Address')}</p>
-                          <p>{order.customer_name}</p>
+                          <p className="font-medium text-foreground mb-1">{t('ที่อยู่จัดส่ง', 'Shipping Address')}</p>
+                          <p className="font-medium text-foreground">{order.customer_name} {order.phone && `· ${order.phone}`}</p>
+                          {order.detail && <p>{order.detail}</p>}
+                          {(order.subdistrict || order.district || order.province) && (
+                            <p>{[order.subdistrict, order.district, order.province, order.zipcode].filter(Boolean).join(' ')}</p>
+                          )}
                         </div>
                       )}
                     </div>

@@ -45,7 +45,7 @@ export function useProducts(category?: string | null, search?: string) {
       .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()))
       .map(toDbFormat);
 
-  const [products, setProducts] = useState<DbProduct[]>([]);
+  const [products, setProducts] = useState<DbProduct[]>(getFiltered);
   const [loading, setLoading] = useState(true);
 
   const fetchFromSupabase = async () => {
@@ -56,22 +56,22 @@ export function useProducts(category?: string | null, search?: string) {
       if (search)   query = query.ilike('name', `%${search}%`);
       const { data, error } = await query;
       if (!error && data && data.length > 0) {
+        // ได้ข้อมูลจาก DB — ใช้ข้อมูลจริง (stock ถูกต้อง)
         setProducts(data.map(mergeImage));
-      } else if (!error && data && data.length === 0) {
-        // DB ว่างหรือหมวดหมู่ใหม่ — fallback static
+      } else if (!error && data && data.length === 0 && !search) {
+        // DB ว่าง — fallback static
         setProducts(getFiltered());
       }
     } catch (_) {
-      // network error — fallback static
-      setProducts(getFiltered());
+      // network error — คง static ไว้
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    // โหลดจาก Supabase เสมอ ไม่แสดง static ก่อน (ป้องกัน stock ผิด)
-    setProducts([]);
+    // แสดง static ก่อนทันที แล้วค่อย sync DB (stock จาก DB จะ overwrite)
+    setProducts(getFiltered());
     fetchFromSupabase();
   }, [category, search]);
 
@@ -81,6 +81,7 @@ export function useProducts(category?: string | null, search?: string) {
       .channel('products-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, (payload) => {
         if (payload.eventType === 'UPDATE') {
+          // realtime stock update — _fromDb=true ทำให้ป้ายแสดงถูกต้องทันที
           setProducts((prev) => prev.map((p) =>
             p.id === (payload.new as any).id ? mergeImage(payload.new) : p
           ));

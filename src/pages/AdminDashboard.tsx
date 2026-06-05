@@ -72,7 +72,7 @@ export default function AdminDashboard() {
     else if (reportRange === '7days') { const s = new Date(now); s.setDate(s.getDate()-7); q = q.gte('created_at', s.toISOString()); }
     else if (reportRange === '30days') { const s = new Date(now); s.setDate(s.getDate()-30); q = q.gte('created_at', s.toISOString()); }
     const { data } = await q;
-    setOrders((data as Order[]) || []);
+    setOrders((data as unknown as Order[]) || []);
     setOrdersLoading(false);
   };
 
@@ -169,7 +169,7 @@ export default function AdminDashboard() {
   const avgOrder = paidOrders.length > 0 ? totalRevenue / paidOrders.length : 0;
   const rangeLabels: Record<ReportRange, string> = { today:'วันนี้', '7days':'7 วัน', '30days':'30 วัน', all:'ทั้งหมด' };
   const outOfStock = products.filter(p => (p as any)._fromDb && p.stock === 0);
-  const lowStock = products.filter(p => (p as any)._fromDb && p.stock > 0 && p.stock <= 3);
+  const lowStock = products.filter(p => (p as any)._fromDb && p.stock > 0 && p.stock <= 5);
 
   const groupedCustomerOrders = useMemo(() => {
     const groups: Record<string, { email: string, name: string, total: number, items: Record<string, any> }> = {};
